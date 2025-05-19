@@ -245,13 +245,18 @@ func (c *lru) Release(key interface{}) {
 		return
 	}
 	entry := elt.Value.(*entryImpl)
+
+	// Entry size might have changed. Recalculate size and evict entries if necessary.
+	newEntrySize := getSize(entry.value)
+
 	entry.refCount--
 	if entry.refCount == 0 {
 		c.pinnedSize -= entry.Size()
-		metrics.CachePinnedUsage.With(c.metricsHandler).Record(float64(c.pinnedSize))
+	} else {
+		c.pinnedSize += newEntrySize - entry.Size()
 	}
-	// Entry size might have changed. Recalculate size and evict entries if necessary.
-	newEntrySize := getSize(entry.value)
+	metrics.CachePinnedUsage.With(c.metricsHandler).Record(float64(c.pinnedSize))
+
 	c.currSize = c.calculateNewCacheSize(newEntrySize, entry.Size())
 	entry.size = newEntrySize
 	if c.currSize > c.maxSize {

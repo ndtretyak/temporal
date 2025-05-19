@@ -244,7 +244,9 @@ func TestTTLWithPin(t *testing.T) {
 	cache.Release("A")
 	cache.Release("A")
 	snapshot = capture.Snapshot()
-	assert.Equal(t, float64(0), snapshot[metrics.CachePinnedUsage.Name()][0].Value)
+	pinnedSizeRecordings := snapshot[metrics.CachePinnedUsage.Name()]
+	lastPinnedSize := pinnedSizeRecordings[len(pinnedSizeRecordings)-1].Value
+	assert.Equal(t, float64(0), lastPinnedSize)
 	assert.Nil(t, cache.Get("A"))
 	assert.Equal(t, 0, cache.Size())
 	snapshot = capture.Snapshot()
@@ -734,4 +736,36 @@ func TestCache_InvokeLifecycleCallbacks(t *testing.T) {
 	timeSource.Advance(2 * ttl)
 	assert.Nil(t, cache.Get("key"))
 	require.Equal(t, 2, onEvict, "expected OnEvict callback to be invoked")
+}
+
+func TestCache_PinnedSize(t *testing.T) {
+	t.Parallel()
+
+	maxTotalBytes := 10
+	cache := New(maxTotalBytes,
+		&Options{
+			TTL:        time.Millisecond * 50,
+			Pin:        true,
+			TimeSource: nil,
+		},
+	)
+
+	entry := &testEntryWithCacheSize{
+		cacheSize: 1,
+	}
+	key := uuid.New()
+	_, err := cache.PutIfNotExist(key, entry)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, cache.Size())
+	assert.Equal(t, 1, cache.(*lru).pinnedSize)
+
+	_ = cache.Get(key)
+	entry.cacheSize = 5
+	cache.Release(key)
+	assert.Equal(t, 5, cache.Size())
+	assert.Equal(t, 5, cache.(*lru).pinnedSize)
+
+	cache.Release(key)
+	assert.Equal(t, 5, cache.Size())
+	assert.Equal(t, 0, cache.(*lru).pinnedSize)
 }
